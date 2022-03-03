@@ -1,0 +1,193 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.4;
+
+//////////////////////////////////////////////////////////////////////////////////
+//                                                                              //
+//                                                                              //
+//        ____                              __     __                           //
+//       / __ \  ____ _  __  __   ____ _   / /_   / /_  ___    _____   _____    //
+//      / / / / / __ `/ / / / /  / __ `/  / __ \ / __/ / _ \  / ___/  / ___/    //
+//     / /_/ / / /_/ / / /_/ /  / /_/ /  / / / // /_  /  __/ / /     (__  )     //
+//    /_____/  \__,_/  \__,_/   \__, /  /_/ /_/ \__/  \___/ /_/     /____/      //
+//                             /____/                                           //
+//                                    ____                                      //
+//                           ____    / __/                                      //
+//                          / __ \  / /_                                        //
+//                         / /_/ / / __/                                        //
+//                         \____/ /_/                                           //
+//                                                                              //
+//              ______                             __                           //
+//             / ____/   _____   __  __    ____   / /_  ____                    //
+//            / /       / ___/  / / / /   / __ \ / __/ / __ \                   //
+//           / /___    / /     / /_/ /   / /_/ // /_  / /_/ /                   //
+//           \____/   /_/      \__, /   / .___/ \__/  \____/                    //
+//                            /____/   /_/                                      //
+//                                                                              //
+//                                                                              //
+//////////////////////////////////////////////////////////////////////////////////
+
+//  https://www.daughtersofcrypto.io/
+
+import "erc721a/contracts/ERC721A.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+contract DaughtersTest is ERC721A, Ownable {
+    using Strings for uint256;
+    using Counters for Counters.Counter;
+
+    Counters.Counter private supply;
+
+    uint256 MAX_MINTS = 10;
+    uint256 MAX_SUPPLY = 10000;
+    uint256 public mintCost = 0.09 ether;
+
+    string public uriPrefix = ".";
+    string public uriSuffix = ".json";
+    string public hiddenMetadataUri;
+
+    bool public paused = true;
+    bool public revealed = false;
+
+    string public baseURI = "";
+
+    constructor() ERC721A("daughters test", "DOCt") { 
+      setHiddenMetadataUri("ipfs://QmbUXEoUjrnTVapuwmDifbqe9UwwYDMXGApVk2Lp1jsrcw/1.json");
+      }
+
+// PUBLIC FUNCTIONS //
+
+// VIEW TOKEN ID'S OF A SPECIFIC WALLET
+
+  function walletOfOwner(address _owner)
+    public
+    view
+    returns (uint256[] memory)
+  {
+    uint256 ownerTokenCount = balanceOf(_owner);
+    uint256[] memory ownedTokenIds = new uint256[](ownerTokenCount);
+    uint256 currentTokenId = 0;
+    uint256 ownedTokenIndex = 0;
+
+    while (ownedTokenIndex < ownerTokenCount && currentTokenId <= MAX_SUPPLY) {
+      address currentTokenOwner = ownerOf(currentTokenId);
+
+      if (currentTokenOwner == _owner) {
+        ownedTokenIds[ownedTokenIndex] = currentTokenId;
+
+        ownedTokenIndex++;
+      }
+
+      currentTokenId++;
+    }
+
+    return ownedTokenIds;
+  }
+
+// SHOWS THE URI OF A SPECIFIC TOKEN ID
+
+  function tokenURI(uint256 _tokenId)
+    public
+    view
+    virtual
+    override
+    returns (string memory)
+  {
+    require(
+      _exists(_tokenId),
+      "ERC721Metadata: URI query for nonexistent token"
+    );
+
+    if (revealed == false) {
+      return hiddenMetadataUri;
+    }
+
+    string memory currentBaseURI = _baseURI();
+    return bytes(currentBaseURI).length > 0
+        ? string(abi.encodePacked(currentBaseURI, _tokenId.toString(), uriSuffix))
+        : "";
+  }
+
+
+// OWNER ONLY FUNCTIONS //
+
+// PAUSE THE CONTRACT
+
+  function setPaused(bool _state) public onlyOwner {
+    paused = _state;
+  }
+
+// UPDATE HIDDEN METADATA URI
+
+    function setHiddenMetadataUri(string memory _hiddenMetadataUri) public onlyOwner {
+    hiddenMetadataUri = _hiddenMetadataUri;
+  }
+
+// USE BEFORE REVEAL (REAL URI)
+
+  function setUriPrefix(string memory _uriPrefix) public onlyOwner {
+    uriPrefix = _uriPrefix;
+  }
+
+  function setUriSuffix(string memory _uriSuffix) public onlyOwner {
+    uriSuffix = _uriSuffix;
+  }
+
+// UPDATE HIDDEN METADATA URI
+
+  function setBaseURI(string memory _newBaseURI) public onlyOwner {
+    baseURI = _newBaseURI;
+  }
+
+// REVEAL THE COLLECTION
+
+  function setRevealed(bool _state) public onlyOwner {
+    revealed = _state;
+  }
+
+// MINT
+
+  function mint(uint256 quantity) external payable {
+      // _safeMint's second argument now takes in a quantity, not a tokenId.
+    require(!paused, "The contract is paused!");
+    require(quantity + _numberMinted(msg.sender) <= MAX_MINTS, "Exceeded the limit");
+    require(totalSupply() + quantity <= MAX_SUPPLY, "Not enough tokens left");
+    require(msg.value <= (mintCost * quantity), "Not enough ether sent");
+    _safeMint(msg.sender, quantity);
+    }
+
+  modifier mintCompliance(uint256 _mintAmount) {
+    require(_mintAmount > 0 && _mintAmount <= MAX_MINTS, "Invalid mint amount!");
+    require(supply.current() + _mintAmount <= MAX_SUPPLY, "Max supply exceeded!");
+    _;
+  }
+
+// PULLS OUT ALL BALANCE IN THE SMART CONTRACT
+
+  function withdraw() public onlyOwner {
+    // This will pay Morphyus 2% of the initial sales.
+    // You can add addresses or remove this if you want.
+    // =============================================================================
+    (bool hs, ) = payable(0x3068DbB116330e31D4f3c95322d2720B4f033A51).call{value: address(this).balance * 2 / 100}("");
+    require(hs);
+    // =============================================================================
+
+    // This will transfer the remaining contract balance to the owner.
+    // Do not remove this otherwise you will not be able to withdraw the funds.
+    // =============================================================================
+    (bool os, ) = payable(owner()).call{value: address(this).balance}("");
+    require(os);
+    // =============================================================================
+
+  }
+
+    function _baseURI() internal view override returns (string memory) {
+        return baseURI;
+    }
+
+    function setMintCost(uint256 _mintCost) public onlyOwner {
+        mintCost = _mintCost;
+    }
+}
